@@ -3,9 +3,9 @@ package main
 import (
   "fmt"
   "crypto/tls"
-  "time"
   "flag"
   "os"
+  "github.com/austin1237/twitchChat/chatMonitor"
   irc "github.com/fluffle/goirc/client"
 )
 // Variables used for command line parameters
@@ -13,18 +13,15 @@ var (
   Username string
 	Channel string
 	Token    string
-  Duration int
+  Debug bool
 )
-
-var currentChatCount int
-var lastChatCount int
 
 func init() {
 
 	flag.StringVar(&Channel, "c", "", "twitch channel to moniter")
 	flag.StringVar(&Token, "t", "", "twitch oauth token")
   flag.StringVar(&Username, "u", "", "your twitch username")
-  flag.IntVar(&Duration, "d", 5, "# of seconds the chat count will be calculated")
+  flag.BoolVar(&Debug, "debug", false, "boolean show debug logs")
 	flag.Parse()
 
 
@@ -45,31 +42,16 @@ func init() {
 
 }
 
-func checkChatCount(){
-  time.Sleep(5 * time.Second)
-  if (lastChatCount != 0 && currentChatCount != 0){
-    increase := currentChatCount - lastChatCount
-    changePercentage := (float64(increase) / float64(lastChatCount)) * 100
-    fmt.Println("Percentage change was")
-    fmt.Printf("%.6f\n", changePercentage)
-  }
-  fmt.Printf("current %d last %d\n", currentChatCount, lastChatCount)
-  lastChatCount = currentChatCount
-  currentChatCount = 0
-  go checkChatCount()
+
+func joinChannel(conn *irc.Conn, line *irc.Line){
+  fmt.Println("Connected")
+  conn.Join("#" + Channel)
+  fmt.Println("Connected to channel")
+  go chatMonitor.StartMonitoring()
 }
 
-func printMessage(conn *irc.Conn, line *irc.Line) {
-  // Will print e.g.: "#go-nuts: <fluffle> I am saying something"
-  currentChatCount++
-  fmt.Printf("Message")
-  fmt.Printf("%s: <%s> %s\n", line.Target(), line.Nick, line.Text())
-}
-
-func printAction(conn *irc.Conn, line *irc.Line) {
-// Will print e.g.: "#go-nuts: * fluffle does something"
-fmt.Printf("Action")
-fmt.Printf("%s: * %s %s\n", line.Target(), line.Nick, line.Text())
+func chatMessageRecevied(conn *irc.Conn, line *irc.Line) {
+  chatMonitor.AddToCount()
 }
 
 func main(){
@@ -81,15 +63,8 @@ func main(){
   cfg.Pass = "oauth:" + Token
   c := irc.Client(cfg)
   quit := make(chan bool)
-  c.HandleFunc(irc.PRIVMSG, printMessage)
-  c.HandleFunc(irc.ACTION, printAction)
-  c.HandleFunc(irc.CONNECTED,
-        func(conn *irc.Conn, line *irc.Line) {
-            fmt.Println("Connected")
-            conn.Join("#" + Channel)
-            fmt.Println("Connected to channel")
-            go checkChatCount()
-        })
+  c.HandleFunc(irc.PRIVMSG, chatMessageRecevied)
+  c.HandleFunc(irc.CONNECTED, joinChannel)
 // Tell client to connect.
   if err := c.Connect(); err != nil {
       fmt.Printf("Connection error: %s\n", err.Error())
